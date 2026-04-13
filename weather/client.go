@@ -18,7 +18,7 @@ type Client struct {
 }
 
 // constructor func
-func newClient (apiKey string, redisURL string) (*Client, error) {
+func newClient (apiKey, redisURL string) (*Client, error) {
 	opts, err := redis.ParseURL(redisURL)
 
 	if err != nil {
