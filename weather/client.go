@@ -2,8 +2,9 @@ package weather
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -18,7 +19,7 @@ type Client struct {
 }
 
 // constructor func
-func newClient (apiKey, redisURL string) (*Client, error) {
+func NewClient (apiKey, redisURL string) (*Client, error) {
 	opts, err := redis.ParseURL(redisURL)
 
 	if err != nil {
@@ -28,13 +29,13 @@ func newClient (apiKey, redisURL string) (*Client, error) {
 	return &Client{
 		apiKey: 	apiKey,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
-		cache: 		redis.newClient(opts),
+		cache: 		redis.NewClient(opts),
 		cacheTTL: 	10 * time.Minute,
 	}, nil
 }
 
 type owmResponse struct {
-	Main struct {
+    Main struct {
         Temp     float64 `json:"temp"`
         Humidity int     `json:"humidity"`
     } `json:"main"`
@@ -42,7 +43,7 @@ type owmResponse struct {
         Description string `json:"description"`
     } `json:"weather"`
     Name    string `json:"name"`
-    Cod     int    `json:"cod"`
+    Cod     string `json:"cod"`    
     Message string `json:"message"`
 }
 
@@ -54,7 +55,7 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	if err == nil {
 		var data WeatherData
 		if err := json.Unmarshal([]byte(cached), &data); err == nil {
-			data.fromCache = true	// Mark as cache hit
+			data.FromCache = true	// Mark as cache hit
 			return &data, nil
 		}
 	}
@@ -76,10 +77,7 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	}
 	defer resp.Body.Close()
 
-	var owm owmResponse
-	if err := json.NewDecoder(resp.Body).Decode(&owm); err != nil {
-		return nil, fmt.Errorf("Decoding response: %w", err)
-	}
+	log.Printf("OWM status: %d, body city: %s", resp.StatusCode, city)
 
 	// Map API error codes to meaningful errors
 	switch resp.StatusCode {
@@ -90,8 +88,14 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	case http.StatusUnauthorized:
 		return nil, fmt.Errorf("Invalid API Key")
 	default:
-		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode, owm.Message)
+		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode)
 	}
+
+	var owm owmResponse
+	if err := json.NewDecoder(resp.Body).Decode(&owm); err != nil {
+		return nil, fmt.Errorf("Decoding response: %w", err)
+	}
+
 
 	data := &WeatherData {
 		City:			owm.Name,

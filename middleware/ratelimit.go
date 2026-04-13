@@ -42,8 +42,8 @@ type RateLimiter struct {
 func NewRateLimiter() *RateLimiter {
 	r1 := &RateLimiter {
 		limiters:	make(map[string]*limiter),
-		maxTokens: 	20,
-		refillPS: 	10,
+		maxTokens: 	5,
+		refillPS: 	1,
 	}
 
 	// Periodically clean up stale IPs
