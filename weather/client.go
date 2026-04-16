@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"errors"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -16,6 +17,14 @@ type Client struct {
 	httpClient	*http.Client
 	cache		*redis.Client
 	cacheTTL	time.Duration
+}
+
+type WeatherData struct {
+	City        string  `json:"city"`
+    Temperature float64 `json:"temperature_c"`
+    Description string  `json:"description"`
+    Humidity    int     `json:"humidity_pct"`
+    FromCache   bool    `json:"from_cache"`
 }
 
 // constructor func
@@ -43,7 +52,7 @@ type owmResponse struct {
         Description string `json:"description"`
     } `json:"weather"`
     Name    string `json:"name"`
-    Cod     string `json:"cod"`    
+    Cod     int `json:"cod"`    
     Message string `json:"message"`
 }
 
@@ -51,6 +60,7 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	cacheKey := "weather:" + city
 
 	// check cache first
+	// The .Get retreives the memory location of the value. Result() is used to get the value
 	cached, err := c.cache.Get(ctx, cacheKey).Result()
 	if err == nil {
 		var data WeatherData
@@ -58,6 +68,7 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 			data.FromCache = true	// Mark as cache hit
 			return &data, nil
 		}
+		return nil, fmt.Errorf("Unmarshal error: %v \n", err)
 	}
 
 	// Call OpenWeatherMap
@@ -66,11 +77,13 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
         city, c.apiKey,
 	)
 
+	// Create a http.Request object. No request is sent; configuration is done here
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Building request: %w", err)
 	}
 
+	// Request is sent
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Upstream API unavailable: %w", err)
@@ -88,15 +101,21 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	case http.StatusUnauthorized:
 		return nil, fmt.Errorf("Invalid API Key")
 	default:
-		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode)
+		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode, resp.Body)
 	}
 
+	// declare a OWM object to hold the response
 	var owm owmResponse
+
+	// NewDecoder() reads the response body in a streaming fashion for memory efficiency
+	// .Decode() parses the response body into the owm object
 	if err := json.NewDecoder(resp.Body).Decode(&owm); err != nil {
 		return nil, fmt.Errorf("Decoding response: %w", err)
 	}
 
-
+	// transformation phase
+	// Map the OpenWeatherMap response to our WeatherData
+	// We use pointers for efficiency
 	data := &WeatherData {
 		City:			owm.Name,
 		Temperature:	owm.Main.Temp,
@@ -108,12 +127,39 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	}
 
 	// Store in cache
+	// Marshal() converts go struct (data) into a byte slice formatted as JSON
 	if b, err := json.Marshal(data); err == nil {
 		c.cache.Set(ctx, cacheKey, b, c.cacheTTL)
 	}
 
 	return data, nil
 }
+
+func (c *Client) HandleGetWeather(w http.ResponseWriter, r *http.Request) {
+	city := r.URL.Query().Get("city")
+
+	if city == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error" : "city is required"})
+		return
+	}
+
+	data, err := c.GetWeather(r.Context(), city)
+	if err != nil {
+		var notFound *CityNotFoundError
+		if errors.As(err, &notFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error":err.Error()})
+			return
+		}
+
+		// Upstream is down
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error":err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
+}
+
+
 // Typed error lets handlers distinguish "city not found" from "API down"
 type CityNotFoundError struct { City string }
 
@@ -121,10 +167,8 @@ func ( e *CityNotFoundError ) Error() string {
 	return fmt.Sprintf("city not found: %s", e.City)
 }
 
-type WeatherData struct {
-	City        string  `json:"city"`
-    Temperature float64 `json:"temperature_c"`
-    Description string  `json:"description"`
-    Humidity    int     `json:"humidity_pct"`
-    FromCache   bool    `json:"from_cache"`
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
 }
