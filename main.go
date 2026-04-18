@@ -14,10 +14,14 @@ func main() {
 	cfg := config.Load()
 	// rateLimiter := ratelimit.NewRateLimiter()
 
-	weatherClient, err := weather.NewClient(cfg.APIKey, cfg.RedisURL)
+	var weatherProvider weather.WeatherProvider
+
+	client, err := weather.NewClient(cfg.APIKey, cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("failed to init weather client: %v", err)
 	}
+
+	weatherProvider = client
 
 	r1 := middleware.NewRateLimiter()
 
@@ -28,11 +32,40 @@ func main() {
 
 	// Route registration
 	// This is the handler for the /weather endpoint
-	mux.HandleFunc("/weather", weatherClient.HandleGetWeather)
+	mux.HandleFunc("/weather", weatherProvider.HandleGetWeather)
 
 	handler := r1.Middleware(mux)
 	log.Printf("Listening on port: %s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
+}
+
+func makeWeatherHandler (p weather.WeatherProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		city := r.URL.Query().Get("city")
+
+		if city == "" {
+			writeJSON(
+				w, 
+				http.StatusNotFound, 
+				map[string]string {"error":"city is required"},
+			)
+			return
+		}
+
+		data, err := p.GetWeather(r.Context(), city)
+		if err != nil {
+			writeJSON(
+				w,
+				http.StatusInternalServerError,
+				map[string]string {
+					"error":err.Error(),
+				},
+			)
+		}
+
+		writeJSON(w, http.StatusOK, data)
+
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

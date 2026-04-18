@@ -135,30 +135,6 @@ func (c *Client) GetWeather (ctx context.Context, city string) (*WeatherData, er
 	return data, nil
 }
 
-func (c *Client) HandleGetWeather(w http.ResponseWriter, r *http.Request) {
-	city := r.URL.Query().Get("city")
-
-	if city == "" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error" : "city is required"})
-		return
-	}
-
-	data, err := c.GetWeather(r.Context(), city)
-	if err != nil {
-		var notFound *CityNotFoundError
-		if errors.As(err, &notFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error":err.Error()})
-			return
-		}
-
-		// Upstream is down
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error":err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, data)
-}
-
 
 // Typed error lets handlers distinguish "city not found" from "API down"
 type CityNotFoundError struct { City string }
@@ -167,8 +143,4 @@ func ( e *CityNotFoundError ) Error() string {
 	return fmt.Sprintf("city not found: %s", e.City)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
-}
+
