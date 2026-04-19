@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"errors"
 
 	"github.com/redis/go-redis/v9"
 )

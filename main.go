@@ -5,9 +5,10 @@ import (
 	"log"
 	"net/http"
 
-    "github.com/Steven-Yabann/weather-api/config"
-    "github.com/Steven-Yabann/weather-api/middleware"
-    "github.com/Steven-Yabann/weather-api/weather"
+
+	"github.com/Steven-Yabann/weather-api/config"
+	"github.com/Steven-Yabann/weather-api/middleware"
+	"github.com/Steven-Yabann/weather-api/weather"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 
 	var weatherProvider weather.WeatherProvider
 
-	client, err := weather.NewClient(cfg.APIKey, cfg.RedisURL)
+	client, err := weather.NewVisualCrossingClient(cfg.APIKey, cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("failed to init weather client: %v", err)
 	}
@@ -32,7 +33,7 @@ func main() {
 
 	// Route registration
 	// This is the handler for the /weather endpoint
-	mux.HandleFunc("/weather", weatherProvider.HandleGetWeather)
+	mux.HandleFunc("/weather", makeWeatherHandler(weatherProvider))
 
 	handler := r1.Middleware(mux)
 	log.Printf("Listening on port: %s", cfg.Port)
@@ -41,9 +42,11 @@ func main() {
 
 func makeWeatherHandler (p weather.WeatherProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// city := path.Base(r.URL.Path)
+
 		city := r.URL.Query().Get("city")
 
-		if city == "" {
+		if city == ""{
 			writeJSON(
 				w, 
 				http.StatusNotFound, 
@@ -61,6 +64,7 @@ func makeWeatherHandler (p weather.WeatherProvider) http.HandlerFunc {
 					"error":err.Error(),
 				},
 			)
+			return
 		}
 
 		writeJSON(w, http.StatusOK, data)

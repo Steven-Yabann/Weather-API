@@ -2,7 +2,6 @@ package weather
 
 import (
 	"context"
-	"net/http"
 )
 
 type WeatherProvider interface {

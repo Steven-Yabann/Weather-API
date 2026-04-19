@@ -21,7 +21,7 @@ func Load() *Config {
 	}
 
 	return &Config{
-		APIKey: 	mustGet("OPEN_WEATHER_API_KEY"),
+		APIKey: 	mustGet("VISUAL_CROSSING_API_KEY"),
 		RedisURL: 	getOrDefault("REDIS_URL", "redis://localhost:6379"),
 		Port:		getOrDefault("Port", "8080"),
 	}
